@@ -4,6 +4,7 @@ import type { CreateProductData, UpdateProductData } from "../types/product.type
 import { AppError } from "../errors/AppError.js";
 
 
+
 export const createProduct = async (data: CreateProductData) => {
 
     const { name, description, price, stock, category_id } = data;

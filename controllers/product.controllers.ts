@@ -1,4 +1,4 @@
-import express from "express";
+
 import { createProduct, getProduct,getProductbyId, updateProduct } from "../service/product.service.js";
 import type { Request, Response } from "express";
 

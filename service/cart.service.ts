@@ -1,67 +1,51 @@
-import { $ZodCUID2 } from "zod/v4/core";
+
 import pool from "../db/db.js"
 import { AppError } from "../errors/AppError.js";
+import { AddCartProductServiceData } from "../schema/cart.schema.js"
 
-export const getCart = async( userId: number) => {
- 
-
-    const findCart = await pool.query(
-        `SELECT * FROM carts
-        WHERE user_id = $1`, [userId]
-)
-
-    const findedCart = findCart.rows[0];
-    
-    let cart;
-
-    if(!findedCart) {
-        const createCart = await pool.query(
-            `INSERT INTO carts(user_id)
-            VALUES ($1)
-            RETURNING *`, 
-            [userId]
-        )
-    cart = createCart.rows[0];
-}       else {
-    cart = findedCart;
-}
-    const items = await pool.query(
-        `SELECT 
-        ci.id,
-        ci.quantity,
-        ci.cart_id, 
-        p.name,
-        p.description,
-        p.price
-         FROM cart_items ci
-         JOIN products p 
-         ON ci.product_id = p.id
-         WHERE ci.id = $1`,
-         [cart.cart_id]
+export const getCart = async (userId: number) => {
+    const cartResult = await pool.query(
+        `SELECT * FROM carts WHERE user_id = $1`,
+        [userId]
     );
 
-     return {
+    const cart = cartResult.rows[0];
+
+    if (!cart) {
+        return { cart: null, items: [] };
+    }
+
+    const itemsResult = await pool.query(
+        `SELECT
+            ci.id,
+            ci.quantity,
+            ci.cart_id,
+            ci.product_id,
+            p.name,
+            p.description,
+            p.price,
+            (ci.quantity * p.price) AS line_total
+         FROM cart_items ci
+         JOIN products p ON ci.product_id = p.id
+         WHERE ci.cart_id = $1
+         ORDER BY ci.id`,
+        [cart.cart_id]
+    );
+
+    return {
         cart,
-        items: items.rows
+        items: itemsResult.rows
     };
-
-}
-
-
-type AddCartProductData = {
-    userId: number;
-    product_id: number;
-    quantity: number;
 };
 
-export const addCartProduct = async (data: AddCartProductData) => {
+
+
+export const addCartProduct = async (data: AddCartProductServiceData) => {
     const client = await pool.connect();
-
+  
     try {
-        // 1. Start a transaction
         await client.query("BEGIN");
-
-        // 2. Find and lock the product row
+      
         const productResult = await client.query(
             `SELECT id, stock
              FROM products
@@ -70,13 +54,12 @@ export const addCartProduct = async (data: AddCartProductData) => {
             [data.product_id]
         );
 
-        if (productResult.rows.length === 0) {
+        const product = productResult.rows[0];
+
+        if (!product) {
             throw new AppError("Product not found", 404);
         }
 
-        const product = productResult.rows[0];
-
-        // 3. Find the user's cart, creating it if necessary
         await client.query(
             `INSERT INTO carts (user_id)
              VALUES ($1)
@@ -93,7 +76,10 @@ export const addCartProduct = async (data: AddCartProductData) => {
 
         const cart = cartResult.rows[0];
 
-        // 4. Check whether this product is already in the cart
+        if (!cart) {
+            throw new AppError("Cart not found", 404);
+        }
+
         const existingItemResult = await client.query(
             `SELECT quantity
              FROM cart_items
@@ -102,17 +88,13 @@ export const addCartProduct = async (data: AddCartProductData) => {
             [cart.cart_id, data.product_id]
         );
 
-        const currentQuantity =
-            existingItemResult.rows[0]?.quantity ?? 0;
-
+        const currentQuantity = existingItemResult.rows[0]?.quantity ?? 0;
         const finalQuantity = currentQuantity + data.quantity;
 
-        // 5. Reject quantities exceeding available stock
         if (finalQuantity > product.stock) {
             throw new AppError("Insufficient stock", 409);
         }
 
-        // 6. Insert a new item or increment the existing quantity
         const itemResult = await client.query(
             `INSERT INTO cart_items (cart_id, product_id, quantity)
              VALUES ($1, $2, $3)
@@ -123,42 +105,32 @@ export const addCartProduct = async (data: AddCartProductData) => {
             [cart.cart_id, data.product_id, data.quantity]
         );
 
-        // 7. Commit all changes
         await client.query("COMMIT");
-
+    
         return {
             cart_id: cart.cart_id,
             item: itemResult.rows[0]
         };
     } catch (error) {
-        // Undo changes if any operation fails
         await client.query("ROLLBACK");
-        throw error;
+        throw error; 
     } finally {
-        // Always return the connection to the pool
         client.release();
     }
 };
 
 type UpdateProductData = {
-    userId: number,
-    product_id: number,
-    quantity: number
-}
+    userId: number;
+    product_id: number;
+    quantity: number;
+};
 
-export const updateCartItem = async(data: UpdateProductData) => {
-
+export const updateCartItem = async (data: UpdateProductData) => {
     const client = await pool.connect();
-
-     try {
+   
+    try {
         await client.query("BEGIN");
 
-        // 1. Validate the requested quantity
-        if (!Number.isInteger(data.quantity) || data.quantity <= 0) {
-            throw new AppError("Quantity must be a positive integer", 400);
-        }
-
-        // 2. Find the authenticated user's cart
         const cartResult = await client.query(
             `SELECT cart_id
              FROM carts
@@ -166,26 +138,12 @@ export const updateCartItem = async(data: UpdateProductData) => {
             [data.userId]
         );
 
-        if (cartResult.rows.length === 0) {
+        const cart = cartResult.rows[0];
+
+        if (!cart) {
             throw new AppError("Cart not found", 404);
         }
 
-        const cart = cartResult.rows[0];
-
-        // 3. Confirm the product is already in this user's cart
-        const cartItemResult = await client.query(
-            `SELECT id
-             FROM cart_items
-             WHERE cart_id = $1
-               AND product_id = $2`,
-            [cart.cart_id, data.product_id]
-        );
-
-        if (cartItemResult.rows.length === 0) {
-            throw new AppError("Cart item not found", 404);
-        }
-
-        // 4. Lock the product row and check current stock
         const productResult = await client.query(
             `SELECT id, stock
              FROM products
@@ -194,17 +152,16 @@ export const updateCartItem = async(data: UpdateProductData) => {
             [data.product_id]
         );
 
-        if (productResult.rows.length === 0) {
+        const product = productResult.rows[0];
+
+        if (!product) {
             throw new AppError("Product not found", 404);
         }
-
-        const product = productResult.rows[0];
 
         if (data.quantity > product.stock) {
             throw new AppError("Insufficient stock", 409);
         }
 
-        // 5. Replace the existing quantity
         const updatedItemResult = await client.query(
             `UPDATE cart_items
              SET quantity = $1
@@ -214,17 +171,47 @@ export const updateCartItem = async(data: UpdateProductData) => {
             [data.quantity, cart.cart_id, data.product_id]
         );
 
-        // 6. Commit the transaction
+        const updatedItem = updatedItemResult.rows[0];
+
+        if (!updatedItem) {
+            throw new AppError("Cart item not found", 404);
+        }
+
         await client.query("COMMIT");
 
         return {
             cart_id: cart.cart_id,
-            item: updatedItemResult.rows[0]
+            item: updatedItem
         };
-    } catch (error) {
+    } catch (error){
         await client.query("ROLLBACK");
         throw error;
     } finally {
         client.release();
     }
+};
+
+
+export const removeCartItem = async (userId: number, product_id: number) => {
+    const result = await pool.query(
+        `DELETE FROM cart_items
+         WHERE product_id = $2
+           AND cart_id = (SELECT cart_id FROM carts WHERE user_id = $1)
+         RETURNING *`,
+        [userId, product_id]
+    );
+
+    if (result.rows.length === 0) {
+        throw new AppError("Cart item not found", 404);
+    }
+
+    return result.rows[0];
+};
+
+export const clearCart = async (userId: number) => {
+    await pool.query(
+        `DELETE FROM cart_items
+         WHERE cart_id = (SELECT cart_id FROM carts WHERE user_id = $1)`,
+        [userId]
+    );
 };

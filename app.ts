@@ -6,6 +6,8 @@ import { errorHandler } from "./middleware/error.middleware.js";
 import authRoutes from "./routes/auth.routes.js";
 import cookieParser from "cookie-parser";
 import cartRoutes from "./routes/cart.routes.js";
+import orderRoutes from "./routes/order.routes.js"
+
 
 const app = express()
 
@@ -16,6 +18,7 @@ app.use(cookieParser())
 app.use("/api",productRoutes)
 app.use("/api", authRoutes)
 app.use("/api", cartRoutes)
+app.use("/api", orderRoutes)
 
 app.use(errorHandler)
 app.get("/", async(req, res)=> {

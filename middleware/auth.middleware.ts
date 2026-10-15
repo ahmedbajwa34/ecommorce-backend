@@ -5,6 +5,7 @@ import "dotenv/config"
 import { AuthPayload } from "../types/auth.types.js";
 
 
+
 export const authenticate = async(req: Request, res: Response, next: NextFunction) => {
 
     const token: string | undefined = req.cookies.token;
@@ -16,7 +17,7 @@ export const authenticate = async(req: Request, res: Response, next: NextFunctio
     }
 
     try{
-        const decoded = jwt.verify(token, process.env.JWT_SECRET!) as AuthPayload
+        const decoded = jwt.verify(token, process.env.JWT_ACCESS_SECRET!) as AuthPayload
         req.user = decoded
         next()
     }

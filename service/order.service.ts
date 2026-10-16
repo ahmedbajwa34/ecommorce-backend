@@ -137,3 +137,110 @@ export const getOrderById = async (userId: number, orderId: number) => {
             items: itemsResult.rows 
            };
 };
+
+
+export const deleteOrder = async(orderId: number) => {
+    const client = await pool.connect();
+
+    try {
+        const orderStatus = await client.query(
+            `SELECT status from orders
+            WHERE order_id = $1`,[orderId]
+        )
+        const order = orderStatus.rows[0]
+
+        if(order.rows.length === 0) {
+            throw new AppError("Order not found", 404)
+        }
+
+        if(order.status !== "cancelled"){
+            throw new AppError("Order Status is not canceled", 409)
+        }
+
+        await client.query(
+            `DELETE FROM payments 
+            WHERE order_id = $1`,[orderId]
+        )
+        await client.query(
+            `DELETE FROM order_items
+            WHERE order_id = $1`, [orderId]
+        )
+        await client.query(
+            `DELETE FROM order_status_history
+            WHERE order_id = $1`, [orderId]
+        )
+         await client.query(
+            `DELETE FROM orders
+            WHERE order_id = $1`, [orderId]
+        )
+
+        await client.query("COMMIT")
+    }
+    catch(error) {
+       await client.query("ROLLBACK")
+       throw error
+    }
+    finally{
+       client.release()
+    }
+}
+
+
+const moveOrder = async (orderId: number, from: string, to: string) => {
+    const client = await pool.connect();
+
+    try {
+        await client.query("BEGIN");
+
+        const result = await client.query(
+            `SELECT status FROM orders WHERE id = $1 FOR UPDATE`,
+            [orderId]
+        );
+        const order = result.rows[0];
+
+        if (!order){ 
+            throw new AppError("Order not found", 404)
+        };
+
+        if (order.status !== from) {
+            throw new AppError(`Order must be ${from} to become ${to}. It is ${order.status}.`, 409);
+        }
+
+        const updated = await client.query(
+            `UPDATE orders SET status = $2 WHERE id = $1 RETURNING *`,
+            [orderId, to]
+        );
+
+        await client.query(
+            `INSERT INTO order_status_history (order_id, status) VALUES ($1, $2)`,
+            [orderId, to]
+        );
+
+        await client.query("COMMIT");
+        return updated.rows[0];
+    } catch (error) {
+        await client.query("ROLLBACK");
+        throw error;
+    } finally {
+        client.release();
+    }
+};
+
+export const confirmOrder = (id: number) => 
+                   moveOrder(id, 
+                   "pending", 
+                   "confirmed");
+
+export const processOrder = (id: number) => 
+                    moveOrder(id, 
+                    "confirmed", 
+                    "processing");
+
+export const shipOrder    = (id: number) => 
+                    moveOrder(id, 
+                    "processing", 
+                    "shipped");
+export const deliverOrder = (id: number) => 
+                    moveOrder(id, 
+                    "shipped", 
+                    "delivered");

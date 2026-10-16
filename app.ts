@@ -7,7 +7,7 @@ import authRoutes from "./routes/auth.routes.js";
 import cookieParser from "cookie-parser";
 import cartRoutes from "./routes/cart.routes.js";
 import orderRoutes from "./routes/order.routes.js"
-
+import { connectRedis } from "./db/redis.js";
 
 const app = express()
 
@@ -32,17 +32,15 @@ app.get("/", async(req, res)=> {
     
 })
 
-app.get("/health/db", async(req, res) => {
-      const result = await pool.query("SELECT NOW()")
+  
 
-      res.status(200).json({
-        database: "Connected"
-      })
-      
-})
-
-
-app.listen(3000, ()=> {
-    console.log("Server Running at Port:3000");
-    
-})
+connectRedis()
+    .then(() => {
+        app.listen(3000, () => {
+            console.log("Server running at PORT: 3000");
+        });
+    })
+    .catch((error) => {
+        console.error("Failed to connect to Redis:", error);
+        process.exit(1);
+    });

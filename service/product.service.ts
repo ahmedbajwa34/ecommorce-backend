@@ -2,8 +2,35 @@
 import pool from "../db/db.js";
 import type { CreateProductData, UpdateProductData } from "../types/product.types.js";
 import { AppError } from "../errors/AppError.js";
+import { redisClient } from "../db/redis.js";
+import { invalidateProductCache } from "./product-cache.service.js";
 
+type Data = {
+    name: string
+}
 
+export const addToCategory = async(data: Data) => {
+
+    const { name } = data;
+
+    const result = await pool.query(
+        `INSERT INTO categories(name)
+        VALUES($1)
+        RETURNING name
+        `,[name]
+    )
+    return result.rows[0];
+}
+
+export const getCategory = async () => {
+    const result =  await pool.query(
+        `SELECT * FROM categories`
+    )
+    if(result.rows.length === 0) {
+        throw new AppError("Category not found", 404)
+    }
+    return result.rows[0]
+}
 
 export const createProduct = async (data: CreateProductData) => {
 
@@ -20,6 +47,19 @@ export const createProduct = async (data: CreateProductData) => {
 };
 
 export const getProduct = async() => {
+    const cache_key = "product:all"
+
+    try{
+        const cached = await redisClient.get(cache_key)
+        if (cached) {
+            console.log("REDIS HIT")
+            return JSON.parse(cached)
+
+        }
+    }
+    catch( error){
+        console.log("Redis Cache Read Failed", error);
+    }
 
     const data = await pool.query(
         `SELECT id, name, description, price, stock, category_id
@@ -28,12 +68,34 @@ export const getProduct = async() => {
     if(data.rows.length === 0){
        throw new AppError("Product not found", 404)
     }
+    try{
+        await redisClient.set(
+            cache_key,
+            JSON.stringify(data.rows),
+            { EX: 300 }
+        )
+    }
+    catch(error){
+        console.log("Redis write failed", error);
+    }
 
     return data.rows
 }
 
 export const getProductbyId = async(getId: number) => {
+    const cache_key = `product:: ${getId}`
      
+    try{
+        const cache = await redisClient.get(cache_key)
+        if(cache) {
+            console.log("REDIS HIT");
+            return JSON.parse(cache)   
+        }
+    }
+    catch(error){
+        console.log("REDIS read failed", error);
+        
+    }
 
     const data = await pool.query(
           `SELECT id, name, description, price, stock, category_id
@@ -43,6 +105,18 @@ export const getProductbyId = async(getId: number) => {
     if(data.rows.length === 0) {
         throw new AppError("Product not found", 404)
      }
+
+    try{
+      await redisClient.set(
+        cache_key,
+        JSON.stringify(data.rows[0]),
+        { EX: 300 }
+      )
+    }
+    catch(error){
+        console.log("REDIS write failed", error);
+        
+    }
 
     return data.rows[0]
 }
@@ -95,6 +169,18 @@ export const updateProduct = async (id:number, data: UpdateProductData) => {
     if (fields.length === 0) {
     throw new AppError("No fields provided for update", 400);
     }
+      
+    const update = result.rows[0];
     
-    return result.rows[0];
+    if(update.rows.length === 0) {
+        throw new AppError("Product not found", 404)
+    }
+    try {
+        await invalidateProductCache(id);
+    }
+    catch(error) {
+        console.error("Product cache invalidation failed:", error);
+    }
+
+    return update;
 };

@@ -1,8 +1,27 @@
 
-import { createProduct, getProduct,getProductbyId, updateProduct } from "../service/product.service.js";
+import { createProduct, getProduct,getProductbyId, updateProduct,addToCategory , getCategory} from "../service/product.service.js";
 import type { Request, Response } from "express";
 
+export const addCategory = async(req: Request, res: Response) => {
+    const data = req.body;
 
+    const result = await addToCategory(data)
+    res.status(201).json({
+        message: "Category Created Successfully",
+        data: result
+    })
+
+}
+
+export const listCategory = async(req: Request, res: Response) => {
+
+    const result = await getCategory()
+    
+    res.status(200).json({
+        message: "List Of Categories",
+        data: result
+})
+}
 
 export const addPRODUCT = async(req: Request, res: Response)=> {
   

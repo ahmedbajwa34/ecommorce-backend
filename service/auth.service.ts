@@ -1,47 +1,37 @@
-
-import pool from "../db/db.js"
+import pool from "../db/db.js";
 import bcrypt from "bcrypt";
 import { AppError } from "../errors/AppError.js";
-import jwt  from "jsonwebtoken";
-import "dotenv/config"
+import jwt from "jsonwebtoken";
+import "dotenv/config";
 import { AuthPayload } from "../types/auth.types.js";
 
+export const registerUser = async (data: { name: string; email: string; password: string }) => {
+    const client = await pool.connect();
+    try {
+        await client.query("BEGIN");
 
+        const passwordHash = await bcrypt.hash(data.password, 10);
 
-export const registerUser = async(data: {
-    name: string,
-    email: string,
-    password: string
-}) => {
-
-    const client = await pool.connect()
-    try{
-    await client.query("BEGIN");
-    
-    const passwordHash = await bcrypt.hash(data.password, 10)
-
-    const registerUserResult = await client.query(
-        `INSERT INTO users(name, email, password_hash)
+        const registerUserResult = await client.query(
+            `INSERT INTO users(name, email, password_hash)
         VALUES ($1, $2, $3) 
-        RETURNING id, name, email`, 
-        [data.name, data.email, passwordHash]
-    )
-    const result = registerUserResult.rows[0] 
-    
-    await client.query("COMMIT")
+        RETURNING id, name, email`,
+            [data.name, data.email, passwordHash]
+        );
+        const result = registerUserResult.rows[0];
 
-    return {
-        result
+        await client.query("COMMIT");
+
+        return {
+            result,
+        };
+    } catch (error) {
+        await client.query("ROLLBACK");
+        throw error;
+    } finally {
+        client.release();
     }
-   }
-   catch(error){
-    await client.query("ROLLBACK")
-    throw error
-   }
-   finally{
-     client.release()
-   }
-}
+};
 
 export const loginUser = async (email: string, password: string) => {
     const result = await pool.query(

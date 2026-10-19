@@ -7,9 +7,7 @@
             "name": "Debug Dashboard",
             "runtimeExecutable": "tsx",
             "program": "${workspaceFolder}/app.ts",
-            "skipFiles": [
-                "<node_internals>/**"
-            ]
+            "skipFiles": ["<node_internals>/**"]
         }
     ]
 }

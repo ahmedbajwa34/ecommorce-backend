@@ -1,8 +1,3 @@
-
-
-
-
-
 export type CreateProductData = {
     name: string;
     description: string;

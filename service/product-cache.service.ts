@@ -1,13 +1,13 @@
-
 import { redisClient } from "../db/redis.js";
+import { PRODUCTS_ALL_KEY, productKey } from "../cache/keys.js";
 
+export const invalidateProductCache = async (productIds: number | number[] = []) => {
+    const ids = Array.isArray(productIds) ? productIds : [productIds];
+    const keys = [PRODUCTS_ALL_KEY, ...ids.map(productKey)];
 
-export const invalidateProductCache = async (productId?: number) => {
-    const keys = ["products:all"];
-
-    if (productId !== undefined) {
-        keys.push(`product:${productId}`);
+    try {
+        await redisClient.del(keys);
+    } catch (error) {
+        console.error("Product cache invalidation failed:", error);
     }
-
-    await redisClient.del(keys);
 };

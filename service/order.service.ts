@@ -1,6 +1,6 @@
-
 import pool from "../db/db.js";
 import { AppError } from "../errors/AppError.js";
+import { invalidateProductCache } from "./product-cache.service.js";
 
 type CheckoutData = {
     userId: number;
@@ -14,7 +14,6 @@ export const checkout = async (data: CheckoutData) => {
     try {
         await client.query("BEGIN");
 
-     
         const itemsResult = await client.query(
             `SELECT ci.product_id, ci.quantity, p.name, p.stock
              FROM cart_items ci
@@ -54,15 +53,16 @@ export const checkout = async (data: CheckoutData) => {
             [orderId, data.userId]
         );
 
-        await client.query(
+        const stockResult = await client.query(
             `UPDATE products p
-             SET stock = p.stock - oi.quantity
-             FROM order_items oi
-             WHERE oi.order_id = $1 AND oi.product_id = p.id`,
+           SET stock = p.stock - oi.quantity
+           FROM order_items oi
+           WHERE oi.order_id = $1 AND oi.product_id = p.id
+           RETURNING p.id`,
             [orderId]
         );
+        const changedIds: number[] = stockResult.rows.map((r) => r.id);
 
-      
         const totalResult = await client.query(
             `UPDATE orders
              SET total = (SELECT SUM(quantity * unit_price) FROM order_items WHERE order_id = $1)
@@ -91,6 +91,7 @@ export const checkout = async (data: CheckoutData) => {
         );
 
         await client.query("COMMIT");
+        await invalidateProductCache(changedIds);
 
         return order;
     } catch (error) {
@@ -113,14 +114,15 @@ export const getOrders = async (userId: number) => {
 };
 
 export const getOrderById = async (userId: number, orderId: number) => {
-    const orderResult = await pool.query(
-        `SELECT * FROM orders WHERE id = $1 AND user_id = $2`,
-        [orderId, userId]
-    );
+    const orderResult = await pool.query(`SELECT * FROM orders WHERE id = $1 AND user_id = $2`, [
+        orderId,
+        userId,
+    ]);
     const order = orderResult.rows[0];
 
-    if (!order) 
-        { throw new AppError("Order not found", 404) }
+    if (!order) {
+        throw new AppError("Order not found", 404);
+    }
 
     const itemsResult = await pool.query(
         `SELECT oi.product_id, p.name, oi.quantity, oi.unit_price,
@@ -132,59 +134,65 @@ export const getOrderById = async (userId: number, orderId: number) => {
         [orderId]
     );
 
-    return { 
-            order, 
-            items: itemsResult.rows 
-           };
+    return {
+        order,
+        items: itemsResult.rows,
+    };
 };
 
-
-export const deleteOrder = async(orderId: number) => {
+export const deleteOrder = async (orderId: number) => {
     const client = await pool.connect();
 
     try {
-        const orderStatus = await client.query(
-            `SELECT status from orders
-            WHERE order_id = $1`,[orderId]
-        )
-        const order = orderStatus.rows[0]
+        await client.query("BEGIN");
 
-        if(order.rows.length === 0) {
-            throw new AppError("Order not found", 404)
+        const result = await client.query(`SELECT status FROM orders WHERE id = $1 FOR UPDATE`, [
+            orderId,
+        ]);
+        const order = result.rows[0];
+
+        if (!order) {
+            throw new AppError("Order not found", 404);
         }
 
-        if(order.status !== "cancelled"){
-            throw new AppError("Order Status is not canceled", 409)
+        if (order.status !== "cancelled") {
+            throw new AppError("Only cancelled orders can be deleted", 409);
         }
 
         await client.query(
             `DELETE FROM payments 
-            WHERE order_id = $1`,[orderId]
-        )
-        await client.query(
-            `DELETE FROM order_items
-            WHERE order_id = $1`, [orderId]
-        )
-        await client.query(
-            `DELETE FROM order_status_history
-            WHERE order_id = $1`, [orderId]
-        )
-         await client.query(
-            `DELETE FROM orders
-            WHERE order_id = $1`, [orderId]
-        )
+             WHERE order_id = $1`,
+            [orderId]
+        );
 
-        await client.query("COMMIT")
-    }
-    catch(error) {
-       await client.query("ROLLBACK")
-       throw error
-    }
-    finally{
-       client.release()
-    }
-}
+        await client.query(
+            `DELETE FROM order_items 
+            WHERE order_id = $1`,
+            [orderId]
+        );
 
+        await client.query(
+            `
+            DELETE FROM order_status_history 
+            WHERE order_id = $1`,
+            [orderId]
+        );
+
+        await client.query(
+            `
+            DELETE FROM orders 
+            WHERE id = $1`,
+            [orderId]
+        );
+
+        await client.query("COMMIT");
+    } catch (error) {
+        await client.query("ROLLBACK");
+        throw error;
+    } finally {
+        client.release();
+    }
+};
 
 const moveOrder = async (orderId: number, from: string, to: string) => {
     const client = await pool.connect();
@@ -192,27 +200,64 @@ const moveOrder = async (orderId: number, from: string, to: string) => {
     try {
         await client.query("BEGIN");
 
-        const result = await client.query(
-            `SELECT status FROM orders WHERE id = $1 FOR UPDATE`,
-            [orderId]
-        );
+        const result = await client.query(`SELECT status FROM orders WHERE id = $1 FOR UPDATE`, [
+            orderId,
+        ]);
         const order = result.rows[0];
 
-        if (!order){ 
-            throw new AppError("Order not found", 404)
-        };
+        if (!order) {
+            throw new AppError("Order not found", 404);
+        }
 
         if (order.status !== from) {
-            throw new AppError(`Order must be ${from} to become ${to}. It is ${order.status}.`, 409);
+            throw new AppError(
+                `Order must be ${from} to become ${to}. It is ${order.status}.`,
+                409
+            );
+        }
+        if (to === "shipped") {
+            const paymentResult = await client.query(
+                `SELECT status, payment_method  FROM payments
+         WHERE order_id = $1`,
+                [orderId]
+            );
+            const payment = paymentResult.rows[0];
+
+            if (!payment) {
+                throw new AppError("Payment record not found", 500);
+            }
+
+            const canShip =
+                payment.payment_method === "cash_on_delivery" || payment.status === "paid";
+
+            if (!canShip) {
+                throw new AppError("Payment is required before this order can be shipped", 409);
+            }
         }
 
         const updated = await client.query(
-            `UPDATE orders SET status = $2 WHERE id = $1 RETURNING *`,
+            `UPDATE orders 
+             SET status = $2 
+             WHERE id = $1 
+             RETURNING *`,
             [orderId, to]
         );
 
+        if (to === "delivered") {
+            await client.query(
+                `UPDATE payments 
+         SET status = 'paid'
+         WHERE order_id = $1 
+         AND payment_method = 'cash_on_delivery' 
+         AND status = 'pending'`,
+                [orderId]
+            );
+        }
+
         await client.query(
-            `INSERT INTO order_status_history (order_id, status) VALUES ($1, $2)`,
+            `INSERT INTO order_status_history 
+            (order_id, status) 
+            VALUES ($1, $2)`,
             [orderId, to]
         );
 
@@ -226,21 +271,9 @@ const moveOrder = async (orderId: number, from: string, to: string) => {
     }
 };
 
-export const confirmOrder = (id: number) => 
-                   moveOrder(id, 
-                   "pending", 
-                   "confirmed");
+export const confirmOrder = (id: number) => moveOrder(id, "pending", "confirmed");
 
-export const processOrder = (id: number) => 
-                    moveOrder(id, 
-                    "confirmed", 
-                    "processing");
+export const processOrder = (id: number) => moveOrder(id, "confirmed", "processing");
 
-export const shipOrder    = (id: number) => 
-                    moveOrder(id, 
-                    "processing", 
-                    "shipped");
-export const deliverOrder = (id: number) => 
-                    moveOrder(id, 
-                    "shipped", 
-                    "delivered");
+export const shipOrder = (id: number) => moveOrder(id, "processing", "shipped");
+export const deliverOrder = (id: number) => moveOrder(id, "shipped", "delivered");

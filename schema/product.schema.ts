@@ -1,5 +1,3 @@
-
-
 import { z } from "zod";
 
 export const CreateProductSchema = z.object({
@@ -7,7 +5,5 @@ export const CreateProductSchema = z.object({
     description: z.string(),
     price: z.number().nonnegative(),
     stock: z.number().int().nonnegative(),
-    category_id: z.number().int()
+    category_id: z.number().int(),
 });
-
-

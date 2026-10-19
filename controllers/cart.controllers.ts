@@ -1,17 +1,22 @@
 import type { Request, Response } from "express";
-import { getCart, updateCartItem,addCartProduct, removeCartItem, clearCart } from "../service/cart.service.js";
+import {
+    getCart,
+    updateCartItem,
+    addCartProduct,
+    removeCartItem,
+    clearCart,
+} from "../service/cart.service.js";
 import { AppError } from "../errors/AppError.js";
 
-export const cart = async(req: Request, res: Response) => {
-   const userId = req.user!.id
-   const result = await getCart(userId)
-   
-   return res.status(200).json({
-    message: "Cart Items Fetched",
-    data: result
-   })
+export const cart = async (req: Request, res: Response) => {
+    const userId = req.user!.id;
+    const result = await getCart(userId);
 
-}
+    return res.status(200).json({
+        message: "Cart Items Fetched",
+        data: result,
+    });
+};
 
 export const addProductToCart = async (req: Request, res: Response) => {
     const userId = req.user!.id;
@@ -20,8 +25,10 @@ export const addProductToCart = async (req: Request, res: Response) => {
     const quantity = Number(req.body.quantity);
 
     if (
-        !Number.isInteger(product_id) || product_id < 1 ||
-        !Number.isInteger(quantity) || quantity < 1
+        !Number.isInteger(product_id) ||
+        product_id < 1 ||
+        !Number.isInteger(quantity) ||
+        quantity < 1
     ) {
         throw new AppError("Invalid product_id or quantity", 400);
     }
@@ -30,10 +37,9 @@ export const addProductToCart = async (req: Request, res: Response) => {
 
     return res.status(201).json({
         message: "PRODUCT ADDED TO THE CART",
-        data: result
+        data: result,
     });
 };
-
 
 export const UpdatecartItem = async (req: Request, res: Response) => {
     const userId = req.user!.id;
@@ -42,8 +48,10 @@ export const UpdatecartItem = async (req: Request, res: Response) => {
     const quantity = Number(req.body.quantity);
 
     if (
-        !Number.isInteger(product_id) || product_id < 1 ||
-        !Number.isInteger(quantity) || quantity < 1
+        !Number.isInteger(product_id) ||
+        product_id < 1 ||
+        !Number.isInteger(quantity) ||
+        quantity < 1
     ) {
         throw new AppError("Invalid product_id or quantity", 400);
     }
@@ -52,10 +60,9 @@ export const UpdatecartItem = async (req: Request, res: Response) => {
 
     return res.status(200).json({
         message: "Cart item updated successfully",
-        data: result
+        data: result,
     });
 };
-
 
 export const removeItemFromCart = async (req: Request, res: Response) => {
     const userId = req.user!.id;
@@ -69,7 +76,7 @@ export const removeItemFromCart = async (req: Request, res: Response) => {
 
     return res.status(200).json({
         message: "Item removed from cart",
-        data: result
+        data: result,
     });
 };
 
@@ -79,6 +86,6 @@ export const emptyCart = async (req: Request, res: Response) => {
     await clearCart(userId);
 
     return res.status(200).json({
-        message: "Cart cleared"
+        message: "Cart cleared",
     });
 };

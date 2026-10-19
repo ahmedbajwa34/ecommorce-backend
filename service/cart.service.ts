@@ -1,13 +1,9 @@
-
-import pool from "../db/db.js"
+import pool from "../db/db.js";
 import { AppError } from "../errors/AppError.js";
-import { AddCartProductServiceData } from "../schema/cart.schema.js"
+import { AddCartProductServiceData } from "../schema/cart.schema.js";
 
 export const getCart = async (userId: number) => {
-    const cartResult = await pool.query(
-        `SELECT * FROM carts WHERE user_id = $1`,
-        [userId]
-    );
+    const cartResult = await pool.query(`SELECT * FROM carts WHERE user_id = $1`, [userId]);
 
     const cart = cartResult.rows[0];
 
@@ -34,18 +30,16 @@ export const getCart = async (userId: number) => {
 
     return {
         cart,
-        items: itemsResult.rows
+        items: itemsResult.rows,
     };
 };
 
-
-
 export const addCartProduct = async (data: AddCartProductServiceData) => {
     const client = await pool.connect();
-  
+
     try {
         await client.query("BEGIN");
-      
+
         const productResult = await client.query(
             `SELECT id, stock
              FROM products
@@ -106,14 +100,14 @@ export const addCartProduct = async (data: AddCartProductServiceData) => {
         );
 
         await client.query("COMMIT");
-    
+
         return {
             cart_id: cart.cart_id,
-            item: itemResult.rows[0]
+            item: itemResult.rows[0],
         };
     } catch (error) {
         await client.query("ROLLBACK");
-        throw error; 
+        throw error;
     } finally {
         client.release();
     }
@@ -127,7 +121,7 @@ type UpdateProductData = {
 
 export const updateCartItem = async (data: UpdateProductData) => {
     const client = await pool.connect();
-   
+
     try {
         await client.query("BEGIN");
 
@@ -181,16 +175,15 @@ export const updateCartItem = async (data: UpdateProductData) => {
 
         return {
             cart_id: cart.cart_id,
-            item: updatedItem
+            item: updatedItem,
         };
-    } catch (error){
+    } catch (error) {
         await client.query("ROLLBACK");
         throw error;
     } finally {
         client.release();
     }
 };
-
 
 export const removeCartItem = async (userId: number, product_id: number) => {
     const result = await pool.query(

@@ -1,9 +1,7 @@
 import pool from "../db/db.js";
 import bcrypt from "bcrypt";
 import { AppError } from "../errors/AppError.js";
-import jwt from "jsonwebtoken";
 import "dotenv/config";
-import { AuthPayload } from "../types/auth.types.js";
 
 export const registerUser = async (data: { name: string; email: string; password: string }) => {
     const client = await pool.connect();
@@ -43,7 +41,6 @@ export const loginUser = async (email: string, password: string) => {
 
     const user = result.rows[0];
 
-    // Same message and status for both cases, so emails can't be enumerated
     if (!user) {
         throw new AppError("Invalid email or password", 401);
     }

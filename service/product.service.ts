@@ -33,15 +33,25 @@ export const getCategory = async () => {
 export const createProduct = async (data: CreateProductData) => {
     const { name, description, price, stock, category_id } = data;
 
-    const result = await pool.query(
-        `INSERT INTO products(name, description, price, stock, category_id)
-        VALUES($1, $2, $3, $4, $5)
-        RETURNING id, name, description, price, stock, category_id, created_at`,
-        [name, description, price, stock, category_id]
-    );
+    try {
+        const result = await pool.query(
+            `INSERT INTO products(name, description, price, stock, category_id)
+             VALUES($1, $2, $3, $4, $5)
+             RETURNING id, name, description, price, stock, category_id, created_at`,
+            [name, description, price, stock, category_id]
+        );
 
-    return result.rows[0];
+        await invalidateProductCache();
+
+        return result.rows[0];
+    } catch (error: any) {
+        if (error.code === "23505") {
+            throw new AppError("Product already exists in this category", 409);
+        }
+        throw error;
+    }
 };
+
 
 export const getProduct = async () => {
     const cache_key = PRODUCTS_ALL_KEY;
@@ -58,7 +68,8 @@ export const getProduct = async () => {
 
     const data = await pool.query(
         `SELECT id, name, description, price, stock, category_id
-        FROM products`
+        FROM products
+        WHERE is_active = TRUE`
     );
     if (data.rows.length === 0) {
         throw new AppError("Product not found", 404);
@@ -88,7 +99,7 @@ export const getProductbyId = async (getId: number) => {
     const data = await pool.query(
         `SELECT id, name, description, price, stock, category_id
            FROM products 
-           WHERE id = $1`,
+           WHERE id = $1 AND is_active = TRUE`,
         [getId]
     );
     if (data.rows.length === 0) {

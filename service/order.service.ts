@@ -30,10 +30,13 @@ export const checkout = async (data: CheckoutData) => {
         }
 
         for (const item of itemsResult.rows) {
-            if (item.quantity > item.stock) {
-                throw new AppError(`Insufficient stock`, 409);
-            }
-        }
+    if (!item.is_active) {
+        throw new AppError(`${item.name} is no longer available`, 409);
+    }
+    if (item.quantity > item.stock) {
+        throw new AppError(`Insufficient stock for ${item.name}`, 409);
+    }
+}
 
         const orderResult = await client.query(
             `INSERT INTO orders (user_id, status, total, shipping_address)
@@ -114,10 +117,13 @@ export const getOrders = async (userId: number) => {
 };
 
 export const getOrderById = async (userId: number, orderId: number) => {
-    const orderResult = await pool.query(`SELECT * FROM orders WHERE id = $1 AND user_id = $2`, [
-        orderId,
-        userId,
-    ]);
+    const orderResult = await pool.query(`
+        SELECT * 
+        FROM orders 
+        WHERE id = $1 
+        AND user_id = $2`, 
+        [ orderId, userId]);
+
     const order = orderResult.rows[0];
 
     if (!order) {

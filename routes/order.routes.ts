@@ -11,10 +11,11 @@ import {
 import { authenticate } from "../middleware/auth.middleware.js";
 import { authorize } from "../middleware/authorize.middleware.js";
 import { deleteOrder } from "../service/order.service.js";
+import { orderRateLimiter } from "../middleware/rate-limit.middleware.js";
 
 const router = express.Router();
 
-router.post("/placeOrder", authenticate, authorize("customer"), placeOrder);
+router.post("/placeOrder", orderRateLimiter, authenticate, authorize("customer"), placeOrder);
 router.get("/orders", authenticate, listOfOrders);
 router.get("/order/:id", authenticate, orderDetails);
 router.patch("/orders/:id/confirm", authenticate, authorize("admin"), confirm);

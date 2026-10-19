@@ -8,13 +8,14 @@ import cartRoutes from "./routes/cart.routes.js";
 import orderRoutes from "./routes/order.routes.js";
 import { connectRedis } from "./db/redis.js";
 import paymentRoutes from "./routes/payments.routes.js";
-
+import { globalRateLimiter } from "./middleware/rate-limit.middleware.js";
 
 
 const app = express();
 
 app.use(express.json());
 app.use(cookieParser());
+app.use(globalRateLimiter);
 
 app.use("/api", productRoutes);
 app.use("/api", authRoutes);

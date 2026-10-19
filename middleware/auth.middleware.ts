@@ -3,6 +3,7 @@ import jwt from "jsonwebtoken";
 import "dotenv/config";
 import { AuthPayload } from "../types/auth.types.js";
 
+
 export const authenticate = async (req: Request, res: Response, next: NextFunction) => {
     const token: string | undefined = req.cookies.token;
 

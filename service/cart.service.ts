@@ -44,6 +44,7 @@ export const addCartProduct = async (data: AddCartProductServiceData) => {
             `SELECT id, stock
              FROM products
              WHERE id = $1
+             AND is_active = TRUE
              FOR UPDATE`,
             [data.product_id]
         );
@@ -142,6 +143,7 @@ export const updateCartItem = async (data: UpdateProductData) => {
             `SELECT id, stock
              FROM products
              WHERE id = $1
+             AND is_active = TRUE
              FOR UPDATE`,
             [data.product_id]
         );

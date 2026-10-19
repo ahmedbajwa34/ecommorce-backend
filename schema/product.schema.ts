@@ -7,3 +7,4 @@ export const CreateProductSchema = z.object({
     stock: z.number().int().nonnegative(),
     category_id: z.number().int(),
 });
+

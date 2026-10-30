@@ -35,16 +35,5 @@ app.get("/", async (req, res) => {
 
 app.use(errorHandler);
 
+export default app
 
-connectRedis()
-    .then(() => {
-        const PORT = Number(process.env.PORT) || 3000;
-
-        app.listen(PORT, () => {
-            console.log(`Server running at PORT: ${PORT}`);
-        });
-    })
-    .catch((error) => {
-        console.error("Failed to connect to Redis:", error);
-        process.exit(1);
-    });

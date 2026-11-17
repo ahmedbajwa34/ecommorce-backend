@@ -1,4 +1,4 @@
-# Lumen
+
 
 Portfolio ecommerce: Express + TypeScript API, Postgres, Redis, Stripe, and a React storefront.
 

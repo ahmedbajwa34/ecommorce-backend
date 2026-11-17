@@ -1,12 +1,2 @@
-export enum status {
-    pending,
-    paid,
-    failed,
-    refunded,
-}
-
-export enum payment_method {
-    card,
-    bank_transfer,
-    cash_on_delivery,
-}
+export type PaymentStatus = "pending" | "paid" | "failed" | "refunded";
+export type PaymentMethod = "card" | "cash_on_delivery";

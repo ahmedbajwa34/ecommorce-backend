@@ -12,22 +12,26 @@ type Data = {
 export const addToCategory = async (data: Data) => {
     const { name } = data;
 
-    const result = await pool.query(
-        `INSERT INTO categories(name)
-        VALUES($1)
-        RETURNING name
-        `,
-        [name]
-    );
-    return result.rows[0];
+    try {
+        const result = await pool.query(
+            `INSERT INTO categories(name)
+            VALUES($1)
+            RETURNING id, name
+            `,
+            [name]
+        );
+        return result.rows[0];
+    } catch (error: any) {
+        if (error.code === "23505") {
+            throw new AppError("Category already exists", 409);
+        }
+        throw error;
+    }
 };
 
 export const getCategory = async () => {
-    const result = await pool.query(`SELECT * FROM categories`);
-    if (result.rows.length === 0) {
-        throw new AppError("Category not found", 404);
-    }
-    return result.rows[0];
+    const result = await pool.query(`SELECT id, name FROM categories ORDER BY name`);
+    return result.rows;
 };
 
 export const createProduct = async (data: CreateProductData) => {
@@ -45,6 +49,9 @@ export const createProduct = async (data: CreateProductData) => {
 
         return result.rows[0];
     } catch (error: any) {
+        if (error.code === "23503") {
+            throw new AppError("Category not found", 400);
+        }
         if (error.code === "23505") {
             throw new AppError("Product already exists in this category", 409);
         }
@@ -71,11 +78,10 @@ export const getProduct = async () => {
         FROM products
         WHERE is_active = TRUE`
     );
-    if (data.rows.length === 0) {
-        throw new AppError("Product not found", 404);
-    }
     try {
-        await redisClient.set(cache_key, JSON.stringify(data.rows), { EX: 300 });
+        if (data.rows.length > 0) {
+            await redisClient.set(cache_key, JSON.stringify(data.rows), { EX: 300 });
+        }
     } catch (error) {
         console.log("Redis write failed", error);
     }

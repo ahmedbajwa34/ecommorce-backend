@@ -7,6 +7,10 @@ export const AddCartProductSchema = z.object({
 
 export type AddCartProductData = z.infer<typeof AddCartProductSchema>;
 
+export const UpdateCartItemSchema = z.object({
+    quantity: z.number().int().positive(),
+});
+
 export type AddCartProductServiceData = AddCartProductData & {
     userId: number;
 };

@@ -7,6 +7,7 @@ import {
     getCategory,
 } from "../service/product.service.js";
 import type { Request, Response } from "express";
+import { AppError } from "../errors/AppError.js";
 
 export const addCategory = async (req: Request, res: Response) => {
     const data = req.body;
@@ -47,14 +48,12 @@ export const gettingProduct = async (req: Request, res: Response) => {
 
 export const gettingProductbyId = async (req: Request, res: Response) => {
     const getId = Number(req.params.id);
+    if (!Number.isInteger(getId) || getId < 1) {
+        throw new AppError("Invalid product id", 400);
+    }
 
     const result = await getProductbyId(getId);
 
-    if (!result) {
-        res.status(404).json({
-            message: "User not found",
-        });
-    }
     res.status(200).json({
         data: result,
     });

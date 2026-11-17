@@ -2,11 +2,7 @@ import pool from "../db/db.js";
 import { AppError } from "../errors/AppError.js";
 import { invalidateProductCache } from "./product-cache.service.js";
 
-type CheckoutData = {
-    userId: number;
-    shipping_address: string;
-    payment_method: "card" | "bank_transfer" | "cash_on_delivery";
-};
+import type { CheckoutData } from "../schema/order.schema.js";
 
 export const checkout = async (data: CheckoutData) => {
     const client = await pool.connect();
@@ -15,7 +11,7 @@ export const checkout = async (data: CheckoutData) => {
         await client.query("BEGIN");
 
         const itemsResult = await client.query(
-            `SELECT ci.product_id, ci.quantity, p.name, p.stock
+            `SELECT ci.product_id, ci.quantity, p.name, p.stock, p.is_active
              FROM cart_items ci
              JOIN carts c ON c.cart_id = ci.cart_id
              JOIN products p ON p.id = ci.product_id
@@ -30,13 +26,13 @@ export const checkout = async (data: CheckoutData) => {
         }
 
         for (const item of itemsResult.rows) {
-    if (!item.is_active) {
-        throw new AppError(`${item.name} is no longer available`, 409);
-    }
-    if (item.quantity > item.stock) {
-        throw new AppError(`Insufficient stock for ${item.name}`, 409);
-    }
-}
+            if (!item.is_active) {
+                throw new AppError(`${item.name} is no longer available`, 409);
+            }
+            if (item.quantity > item.stock) {
+                throw new AppError(`Insufficient stock for ${item.name}`, 409);
+            }
+        }
 
         const orderResult = await client.query(
             `INSERT INTO orders (user_id, status, total, shipping_address)
@@ -105,24 +101,35 @@ export const checkout = async (data: CheckoutData) => {
     }
 };
 
-export const getOrders = async (userId: number) => {
-    const result = await pool.query(
-        `SELECT id, status, total, shipping_address, created_at
-         FROM orders
-         WHERE user_id = $1
-         ORDER BY created_at DESC`,
-        [userId]
-    );
+export const getOrders = async (user: { id: number; role: string }) => {
+    const result =
+        user.role === "admin"
+            ? await pool.query(
+                  `SELECT id, user_id, status, total, shipping_address, created_at
+                   FROM orders
+                   ORDER BY created_at DESC`
+              )
+            : await pool.query(
+                  `SELECT id, user_id, status, total, shipping_address, created_at
+                   FROM orders
+                   WHERE user_id = $1
+                   ORDER BY created_at DESC`,
+                  [user.id]
+              );
     return result.rows;
 };
 
-export const getOrderById = async (userId: number, orderId: number) => {
-    const orderResult = await pool.query(`
-        SELECT * 
-        FROM orders 
-        WHERE id = $1 
-        AND user_id = $2`, 
-        [ orderId, userId]);
+export const getOrderById = async (user: { id: number; role: string }, orderId: number) => {
+    const orderResult =
+        user.role === "admin"
+            ? await pool.query(`SELECT * FROM orders WHERE id = $1`, [orderId])
+            : await pool.query(
+                  `SELECT *
+                   FROM orders
+                   WHERE id = $1
+                   AND user_id = $2`,
+                  [orderId, user.id]
+              );
 
     const order = orderResult.rows[0];
 

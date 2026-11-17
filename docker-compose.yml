@@ -1,0 +1,43 @@
+
+
+# Local development services: PostgreSQL + Redis.
+# Start:   docker compose up -d
+# Stop:    docker compose down
+# Reset:   docker compose down -v   (deletes the database and re-runs db/schema.sql)
+#
+# Host ports default to 5433 and 6380 so they don't collide with a Postgres or
+# Redis already installed on your machine. Match them in .env (see .env.example).
+
+services:
+  postgres:
+    image: postgres:16-alpine
+    container_name: ecommerce-postgres
+    environment:
+      POSTGRES_USER: ${DB_USER:-ecommerce}
+      POSTGRES_PASSWORD: ${DB_PASSWORD:-change_me_local_only}
+      POSTGRES_DB: ${DB_NAME:-ecommerce}
+    ports:
+      - "${POSTGRES_HOST_PORT:-5433}:5432"
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+      # Runs once, only when the data volume is empty (first start).
+      - ./db/schema.sql:/docker-entrypoint-initdb.d/01-schema.sql:ro
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${DB_USER:-ecommerce} -d ${DB_NAME:-ecommerce}"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+
+  redis:
+    image: redis:7-alpine
+    container_name: ecommerce-redis
+    ports:
+      - "${REDIS_HOST_PORT:-6380}:6379"
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+
+volumes:
+  pgdata:

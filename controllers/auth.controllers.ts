@@ -1,6 +1,6 @@
 import type { Request, Response } from "express";
 import { loginUserSchema, registerUserSchema } from "../schema/auth.schema.js";
-import { registerUser, loginUser } from "../service/auth.service.js";
+import { registerUser, loginUser, getCurrentUser } from "../service/auth.service.js";
 import {
     signAccessToken,
     signRefreshToken,
@@ -72,6 +72,14 @@ export const refresh = async (req: Request, res: Response) => {
 
     return res.status(200).json({
         message: "Access token refreshed",
+    });
+};
+
+export const me = async (req: Request, res: Response) => {
+    const user = await getCurrentUser(req.user!.id);
+
+    return res.status(200).json({
+        data: user,
     });
 };
 

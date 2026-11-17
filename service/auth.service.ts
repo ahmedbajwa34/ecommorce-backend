@@ -23,8 +23,11 @@ export const registerUser = async (data: { name: string; email: string; password
         return {
             result,
         };
-    } catch (error) {
+    } catch (error: any) {
         await client.query("ROLLBACK");
+        if (error.code === "23505") {
+            throw new AppError("An account with this email already exists", 409);
+        }
         throw error;
     } finally {
         client.release();
@@ -52,4 +55,21 @@ export const loginUser = async (email: string, password: string) => {
     }
 
     return { id: user.id, role: user.role };
+};
+
+export const getCurrentUser = async (id: number) => {
+    const result = await pool.query(
+        `SELECT id, name, email, role
+         FROM users
+         WHERE id = $1`,
+        [id]
+    );
+
+    const user = result.rows[0];
+
+    if (!user) {
+        throw new AppError("User not found", 404);
+    }
+
+    return user;
 };

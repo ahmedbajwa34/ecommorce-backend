@@ -1,34 +1,97 @@
+# E-Commerce Backend API
 
+A portfolio e-commerce project: a REST API built with **Node.js, Express 5, TypeScript and PostgreSQL**, plus a **React storefront** (in `frontend/`). It covers authentication, a product catalogue, shopping carts, orders, an admin area and card payments (Stripe, test mode).
 
-Portfolio ecommerce: Express + TypeScript API, Postgres, Redis, Stripe, and a React storefront.
+The focus of the project is correctness under concurrency: checkout, stock and payments are handled with database transactions, row-level locks and idempotent webhooks.
 
 ## What you can do
 
-- Create an account, sign in with httpOnly cookies
-- Browse products, add to cart, place an order
+- Create an account and sign in (httpOnly cookies)
+- Browse products, add them to the cart and place an order
 - Pay with **Stripe** (card) or cash on delivery
-- Admin studio: add products/categories and move orders through confirm → process → ship → deliver
+- Use the **admin studio** to add products and categories and move orders through confirm → process → ship → deliver
 
-## Setup
+## Features
 
-1. Install **PostgreSQL** and **Redis**.
-2. Create a database, then load the schema (new project) or only the Stripe migration (existing database):
+- **Auth:** register, login, logout and token refresh with JWT access and refresh tokens (stored in cookies), bcrypt password hashing, and `customer` / `admin` roles.
+- **Catalogue:** categories and products, with Redis caching and cache invalidation after stock changes.
+- **Cart:** add, update and remove items; one cart per user.
+- **Checkout:** one transaction creates the order, order items and payment record, decrements stock and clears the cart.
+- **Order lifecycle:** `pending → confirmed → processing → shipped → delivered`, with a status history table. Admin only.
+- **Payments:** card, bank transfer and cash on delivery. Card payments use Stripe PaymentIntents with a signature-verified webhook.
+- **Security and hygiene:** Zod request validation, parameterized SQL, rate limiting per route, Helmet, CORS, and centralized error handling.
 
-```bash
-psql -d ecommerce -f db/schema.sql
-# existing database only:
-psql -d ecommerce -f db/migrate-stripe.sql
+## Tech stack
+
+| Area | Tools |
+|---|---|
+| Runtime / language | Node.js, TypeScript, Express 5 |
+| Database | PostgreSQL via `pg` (no ORM, plain SQL) |
+| Cache | Redis |
+| Payments | Stripe (PaymentIntents + webhooks, test mode) |
+| Frontend | React, TypeScript, Vite |
+| Validation / security | Zod, JWT, bcrypt, Helmet, express-rate-limit |
+
+## Project structure
+
+```
+app.ts                 App setup, middleware order, route mounting
+routes/                Route definitions
+controllers/           HTTP layer: parse input, call services, send responses
+service/               Business logic and SQL (checkout, payments, cart, products, tokens)
+middleware/            auth, role checks, validation, rate limits, error handler
+schema/                Zod schemas
+db/                    Postgres pool, withTransaction helper, Redis client, schema.sql
+cache/                 Cache key helpers
+errors/                AppError class
+frontend/              React storefront (Vite); proxies /api to the backend on port 3000
 ```
 
-3. Copy `.env.example` to `.env` and fill in DB, Redis, JWT, and Stripe keys.
-4. Install and run the API:
+## Getting started
+
+### 1. Prerequisites
+
+- Node.js (a recent LTS version) and npm
+- PostgreSQL
+- Redis
+- A free Stripe account in **test mode** and the Stripe CLI (only needed for card payments)
+
+### 2. Install
 
 ```bash
+git clone <your-repo-url>
+cd <your-repo-folder>
 npm install
+```
+
+### 3. Create the database
+
+Create an empty database, then load the schema (it also adds a few demo products):
+
+```bash
+createdb -U <user> ecommerce
+psql -U <user> -d ecommerce -f db/schema.sql
+```
+
+If you already have an older database from this project, run only the Stripe migration instead: `psql -U <user> -d ecommerce -f db/migrate-stripe.sql`.
+
+### 4. Configure environment variables
+
+Copy `.env.example` to `.env` and fill in the values (database credentials, two different JWT secrets, Stripe keys). `.env` is git-ignored.
+
+### 5. Run
+
+```bash
 npm run dev
 ```
 
-5. Install and run the storefront (proxies `/api` to port 3000):
+The API listens on `http://localhost:3000`. Health check: `GET /api/health`.
+
+Other scripts: `npm run build` (compile to `dist/`), `npm start` (run the compiled build), `npm run format`.
+
+### 6. Run the storefront
+
+In a second terminal:
 
 ```bash
 cd frontend
@@ -36,23 +99,94 @@ npm install
 npm run dev
 ```
 
-Open [http://localhost:5173](http://localhost:5173).
+Open [http://localhost:5173](http://localhost:5173). The dev server proxies `/api` to the backend on port 3000, so start the API first.
 
-## Stripe
+### Optional: Postgres and Redis with Docker
 
-Use test keys from the Stripe dashboard.
+If you have Docker, `docker compose up -d` starts Postgres and Redis and loads `db/schema.sql` on first start. They use host ports `5433` and `6380`, so set `DB_PORT=5433` and `REDIS_URL=redis://localhost:6380` in `.env`.
 
-- `STRIPE_SECRET_KEY` and `STRIPE_PUBLISHABLE_KEY` are enough for local card payments. After the browser confirms, the API asks Stripe if the PaymentIntent succeeded and marks the order paid.
-- `STRIPE_WEBHOOK_SECRET` is optional locally. Endpoint: `POST /api/webhooks/stripe`.
+## Making users admins
 
-Test card: `4242 4242 4242 4242`, any future expiry, any CVC.
-
-## Admin
-
-New accounts are customers. Promote one user in Postgres:
+New users are `customer`s. Register through the API, then promote one:
 
 ```sql
 UPDATE users SET role = 'admin' WHERE email = 'you@example.com';
 ```
 
-Then sign out and sign in again so the access token picks up the role.
+Then sign out and sign in again, so the new access token carries the admin role.
+
+## API overview
+
+All routes are under `/api`. Authentication uses cookies set by `/login`, so use a client that keeps cookies (for example Postman).
+
+| Method | Path | Access | Purpose |
+|---|---|---|---|
+| POST | `/register` | public | Create an account |
+| POST | `/login` | public | Log in (sets cookies) |
+| POST | `/auth/refresh` | cookie | Refresh the access token |
+| POST | `/logout` | any | Clear cookies |
+| GET | `/products`, `/products/:id` | logged in | List / view products |
+| POST | `/products` | logged in | Create a product |
+| PATCH | `/products/:id` | admin | Update a product |
+| GET / POST | `/categories` | logged in / admin | List / create categories |
+| GET | `/cart` | logged in | View cart |
+| POST | `/cart/items` | logged in | Add item `{ product_id, quantity }` |
+| PATCH | `/cart/items/:product_id` | logged in | Change quantity |
+| DELETE | `/cartItem/:product_id`, `/cart` | logged in | Remove an item / empty the cart |
+| POST | `/placeOrder` | customer | Checkout `{ shipping_address, payment_method }` |
+| GET | `/orders`, `/order/:id` | logged in | List / view your orders |
+| PATCH | `/orders/:id/confirm`, `/process`, `/ship`, `/deliver` | admin | Move an order through its lifecycle |
+| DELETE | `/orders/:id` | admin | Delete a cancelled order |
+| POST | `/orders/:id/pay` | customer | Create a Stripe PaymentIntent for a card order |
+| POST | `/orders/:id/pay/confirm` | customer | Verify payment status with Stripe |
+| GET | `/orders/:id/payment` | owner / admin | View the payment record |
+| GET | `/payments/config` | public | Stripe publishable key |
+| POST | `/webhooks/stripe` | Stripe signature | Stripe webhook receiver |
+
+`payment_method` is one of `card`, `bank_transfer`, `cash_on_delivery`.
+
+## Design decisions
+
+**Checkout is one transaction.** It locks the cart, cart items and products (`SELECT ... FOR UPDATE`), validates stock, creates the order, order items and payment, decrements stock and clears the cart. Any failure rolls everything back.
+
+**Rows are locked in a consistent order** (`ORDER BY id`), which helps avoid deadlocks between concurrent checkouts.
+
+**Overselling is prevented twice.** Stock is checked under a lock, and the stock `UPDATE` is guarded with `stock >= quantity`. If the number of updated rows doesn't match the cart, checkout aborts.
+
+**Order lifecycle is a small state machine.** Each transition locks the order row and verifies the current status. An order can't ship until its payment is `paid`, unless it's cash on delivery. Every change is recorded in `order_status_history`.
+
+**Stripe webhooks are the source of truth.** The browser can disconnect after paying, so the server marks a payment `paid` only when Stripe tells it so.
+- The webhook verifies Stripe's signature (it needs the raw request body, so it is mounted before `express.json()`).
+- It checks that the amount received and the currency match the payment.
+- It only applies valid status transitions, so retried or out-of-order events are harmless: `pending/failed → paid`, `pending → failed`, `paid → refunded`.
+- PaymentIntents are created with an idempotency key, and an existing intent is reused instead of creating a duplicate.
+
+**Redis is a cache, not a requirement for correctness.** Product cache entries are invalidated after checkout. If invalidation fails, the checkout still succeeds and the error is logged.
+
+**Money is stored as `NUMERIC(10,2)`** and converted to integer cents in SQL before talking to Stripe.
+
+## Testing the payment flow (Stripe test mode)
+
+Card payments work with just the two test keys: after the browser confirms the payment, the API asks Stripe whether the PaymentIntent succeeded (`POST /orders/:id/pay/confirm`) and marks the order paid. The webhook is the more robust path and is covered below. In the storefront you can use the test card `4242 4242 4242 4242` with any future expiry and any CVC.
+
+1. Put your test keys in `.env` (`STRIPE_SECRET_KEY`, `STRIPE_PUBLISHABLE_KEY`).
+2. Forward webhooks to your local server:
+   ```bash
+   stripe listen --events "payment_intent.succeeded,payment_intent.payment_failed,charge.refunded" --forward-to localhost:3000/api/webhooks/stripe
+   ```
+   Put the printed `whsec_...` value in `.env` as `STRIPE_WEBHOOK_SECRET` and restart the app.
+3. Register and log in, add a product to the cart, then `POST /placeOrder` with `"payment_method": "card"`.
+4. Call `POST /orders/<id>/pay` and read the `pi_...` id from the `payments` table.
+5. Pay with a Stripe test card:
+   ```bash
+   stripe payment_intents confirm pi_XXXX --payment-method pm_card_visa --return-url https://example.com
+   ```
+   The payment status becomes `paid`. Use `pm_card_chargeDeclined` to see the `failed` path.
+
+## Known limitations
+
+- No automated test suite yet. The flows above were tested manually with Postman and the Stripe CLI.
+- Card payments are tested in Stripe **test mode** only, and the currency is fixed to USD.
+- Partial refunds are ignored; only full refunds change a payment to `refunded`.
+- Unpaid pending orders keep their stock reserved; there is no expiry job.
+- The server port is currently fixed at 3000.
